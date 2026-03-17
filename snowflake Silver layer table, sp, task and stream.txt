@@ -1,0 +1,1001 @@
+create
+or replace schema global_superstore.silver_superstore DATA_RETENTION_TIME_IN_DAYS = 14;
+----------------------------------------------------------------------------------------------------
+/* 
+
+Order table Bronze and insert data query 
+
+*/
+
+
+    
+CREATE OR REPLACE TABLE global_superstore.silver_superstore.S_order (
+        ORDER_SK NUMBER AUTOINCREMENT START = 1000 INCREMENT = 1,
+        ROW_ID STRING,
+        ORDER_ID STRING,
+        ORDER_DATE DATE,
+        SHIP_DATE DATE,
+        SHIP_MODE STRING,
+        CUSTOMER_KEY NUMBER,
+        -- FK to SCD2 dim customer
+        COUNTRY_KEY NUMBER,
+        -- FK to SCD2 dim country
+        PRODUCT_KEY NUMBER,
+        -- FK to SCD2 dim product
+        SALES FLOAT,
+        QUANTITY INT,
+        DISCOUNT FLOAT,
+        PROFIT FLOAT,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        _sf_ingestion_timestamp TIMESTAMP_NTZ,
+        Active_Flag BOOLEAN DEFAULT TRUE,
+        -- Flags the current active version
+        _Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    ) CLUSTER BY (ORDER_DATE, ORDER_ID)
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'Order Fact Table populated from Bronze layer with surrogate key and update timestamp';
+
+    
+    /* 
+    
+    bulk insert data query 
+    
+    */
+
+    
+Insert into  global_superstore.Silver_superstore.S_ORDER (
+        ROW_ID,
+        ORDER_ID,
+        ORDER_DATE,
+        SHIP_DATE,
+        SHIP_MODE,
+        CUSTOMER_KEY,
+        COUNTRY_KEY,
+        PRODUCT_KEY,
+        SALES,
+        QUANTITY,
+        DISCOUNT,
+        PROFIT,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select
+            distinct ROW_ID,
+            ORDER_ID,
+            ORDER_DATE,
+            SHIP_DATE,
+            SHIP_MODE,
+            ABS(HASH(customer_id, customer_name, segment)) AS customer_key,
+            ABS(HASH(city, state, region)) AS country_key,
+            ABS(HASH(product_id, product_name, sub_category)) AS product_key,
+            SALES,
+            QUANTITY,
+            DISCOUNT,
+            PROFIT,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _sf_ingestion_timestamp
+        from
+            GLOBAL_SUPERSTORE.bronze_superstore.b_order
+        where
+            row_id is not null
+    );
+
+----------------------------------------------------------------------------------------------------
+    /* 
+    
+    Calender table Silver and insert data query 
+    
+    */
+
+    
+    CREATE    OR REPLACE TABLE global_superstore.Silver_superstore.S_Calender (
+        Calender_SK NUMBER AUTOINCREMENT START = 1 INCREMENT = 1,
+        CALENDAR_DATE DATE primary key not null,
+        YEAR NUMBER,
+        QUARTER STRING,
+        MONTH STRING,
+        WEEKNUMBER STRING,
+        DAYNAME STRING,
+        DAY NUMBER,
+        INGESTION_TIMESTAMP TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP
+    )
+    --CLUSTER BY (ORDER_DATE)
+    DATA_RETENTION_TIME_IN_DAYS = 3 COMMENT = 'Calender table with between MIN(order_date) AS min_date and  MAX(ship_date) + 1 AS max_date';;
+
+    
+    /* 
+    
+    bulk insert data query 
+    
+    */
+
+    
+Insert into
+    global_superstore.Silver_superstore.S_Calender (
+        CALENDAR_DATE,
+        YEAR,
+        QUARTER,
+        MONTH,
+        WEEKNUMBER,
+        DAYNAME,
+        DAY
+    ) 
+    (
+        WITH date_range AS (
+            SELECT
+                MIN(order_date) AS min_date,
+                MAX(ship_date) + 1 AS max_date
+            FROM
+                global_superstore.bronze_superstore.b_order
+        )
+        SELECT
+            DATEADD(DAY, SEQ4(), min_date) AS calendar_date,
+            YEAR(DATEADD(DAY, SEQ4(), min_date)) AS year,
+            concat('Q', QUARTER(DATEADD(DAY, SEQ4(), min_date))) as quarter,
+            MONTHNAME(DATEADD(DAY, SEQ4(), min_date)) as month,
+            concat('W', week(DATEADD(DAY, SEQ4(), min_date))) as Weeknumber,
+            DAYNAME(DATEADD(DAY, SEQ4(), min_date)) as dayname,
+            DAY(DATEADD(DAY, SEQ4(), min_date)) as Day
+        FROM
+            date_range,
+            TABLE(GENERATOR(ROWCOUNT => 2000))
+        WHERE
+            DATEADD(DAY, SEQ4(), min_date) <= max_date
+    );
+
+    
+drop table global_superstore.Silver_superstore.S_ORDER;
+----------------------------------------------------------------------------------------------------
+
+    /* 
+    
+    -- country dim table Silver and insert data query 
+    
+    */
+
+    
+    CREATE  OR REPLACE TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Geo (
+        GEO_SK NUMBER AUTOINCREMENT,        -- Surrogate Key
+        COUNTRY_KEY NUMBER primary key not null,        -- Natural Key (your hash)
+        CITY STRING,
+        STATE STRING,
+        REGION STRING,
+        COUNTRY STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        _sf_ingestion_timestamp TIMESTAMP_NTZ,
+        _Geo_Active_Flag BOOLEAN DEFAULT TRUE,        -- Flags the current active version
+        _Geo_Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    )
+    --CLUSTER BY (ORDER_DATE)
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'Geo table with unique country key hash';;
+
+    
+
+/*  
+ --  insert data query    
+*/
+  
+
+    
+Insert into   global_superstore.Silver_superstore.S_Geo 
+(
+        COUNTRY_KEY,
+        CITY,
+        STATE,
+        REGION,
+        COUNTRY,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select
+            distinct ABS(HASH(city, state, region)) AS country_key,
+            CITY,
+            STATE,
+            REGION,
+            COUNTRY,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _SF_INGESTION_TIMESTAMP
+        from
+            GLOBAL_SUPERSTORE.bronze_superstore.b_order
+    );
+
+----------------------------------------------------------------------------------------------------
+    /* 
+    
+    -- -- product dim table Silver and insert data query 
+    
+    */
+
+    
+    CREATE  OR REPLACE TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product (
+        PRODUCT_SK NUMBER AUTOINCREMENT,        -- Surrogate Key
+        PRODUCT_KEY NUMBER PRIMARY KEY NOT NULL,        -- Natural Key (hashed)
+        PRODUCT_ID STRING,
+        PRODUCT_NAME STRING,
+        CATEGORY STRING,
+        SUB_CATEGORY STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        _sf_ingestion_timestamp TIMESTAMP_NTZ,
+        _Prod_Active_Flag BOOLEAN DEFAULT TRUE,        -- Flags the current active version
+        _Prod_Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    ) DATA_RETENTION_TIME_IN_DAYS = 14 COMMENT = 'Product dimension table with SCD2 columns';
+    
+  /* 
+    
+    --  insert data query 
+    
+*/
+  
+    
+    
+    insert into  GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product (
+        PRODUCT_KEY,
+        PRODUCT_ID,
+        PRODUCT_NAME,
+        CATEGORY,
+        SUB_CATEGORY,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select  distinct ABS(HASH(product_id, product_name, sub_category)) AS PRODUCT_KEY,
+            PRODUCT_ID,
+            PRODUCT_NAME,
+            CATEGORY,
+            SUB_CATEGORY,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _SF_INGESTION_TIMESTAMP
+        from GLOBAL_SUPERSTORE.bronze_superstore.b_order
+    );
+
+----------------------------------------------------------------------------------------------------
+    /* 
+    
+    -- customer dim table Silver and insert data query 
+    
+    */
+    
+    CREATE    OR REPLACE TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer (
+        CUSTOMER_SK NUMBER AUTOINCREMENT,
+        -- Surrogate Key
+        CUSTOMER_KEY NUMBER PRIMARY KEY NOT NULL,
+        -- Natural Key (hashed)
+        CUSTOMER_ID STRING,
+        CUSTOMER_NAME STRING,
+        SEGMENT STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        _sf_ingestion_timestamp TIMESTAMP_NTZ,
+        _Prod_Active_Flag BOOLEAN DEFAULT TRUE,
+        -- Flags the current active version
+        _Prod_Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    ) DATA_RETENTION_TIME_IN_DAYS = 14 COMMENT = 'Customer dimension table with SCD2 tracking';
+
+/* 
+    
+    --  insert data query 
+    
+*/
+
+    
+
+insert into   GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer 
+(
+        CUSTOMER_KEY,
+        CUSTOMER_ID,
+        CUSTOMER_NAME,
+        SEGMENT,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    )
+select distinct ABS(HASH(customer_id, customer_name, segment)) AS customer_key,
+    CUSTOMER_ID,
+    CUSTOMER_NAME,
+    SEGMENT,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    _SF_INGESTION_TIMESTAMP
+from GLOBAL_SUPERSTORE.bronze_superstore.b_order;
+----------------------------------------------------------------------------------------------------
+    /* 
+    
+    -- people dim table Silver and insert data query 
+    
+    */
+
+CREATE OR REPLACE TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_People (
+        PEOPLE_SK NUMBER AUTOINCREMENT,       -- Surrogate Key
+        PEOPLE_KEY NUMBER PRIMARY KEY NOT NULL,    -- Natural Key (hashed)
+        REGION STRING,
+        PERSON STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        INGESTION_TIMESTAMP TIMESTAMP_NTZ,
+        _People_Active_Flag BOOLEAN DEFAULT TRUE,       -- Active version flag
+        _People_Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    ) 
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'People dimension table with SCD2 tracking';
+
+    
+/* 
+    
+    -- people dim insert data query 
+    
+*/
+
+    
+INSERT INTO
+    GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_People (
+        PEOPLE_KEY,
+        REGION,
+        PERSON,
+        _FIVETRAN_SYNCED,
+        INGESTION_TIMESTAMP
+    )
+SELECT
+    DISTINCT ABS(HASH(REGION, PERSON)) AS PEOPLE_KEY,
+    REGION,
+    PERSON,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    INGESTION_TIMESTAMP
+FROM
+    GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_PEOPLE;
+
+    
+----------------------------------------------------------------------------------------------------
+    /* 
+    
+    -- people dim table Silver and insert data query 
+    
+    */
+
+CREATE  OR REPLACE TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return (
+        RETURN_SK NUMBER AUTOINCREMENT,
+        -- Surrogate Key
+        RETURN_KEY NUMBER PRIMARY KEY NOT NULL,
+        -- Natural Key (hashed)
+        ORDER_ID STRING,
+        RETURNED STRING,
+        MARKET STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        INGESTION_TIMESTAMP TIMESTAMP_NTZ,
+        _Return_Active_Flag BOOLEAN DEFAULT TRUE,
+        -- Active version flag
+        _Return_Table_LOAD_DATETIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP
+    ) 
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'Returns dimension table with SCD2 tracking';
+
+/* 
+    
+    -- people dim insert data query 
+    
+*/
+    
+INSERT INTO
+    GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return (
+        RETURN_KEY,
+        ORDER_ID,
+        RETURNED,
+        MARKET,
+        _FIVETRAN_SYNCED,
+        INGESTION_TIMESTAMP
+    )
+SELECT
+    DISTINCT ABS(HASH(ORDER_ID, RETURNED, MARKET)) AS RETURN_KEY,
+    ORDER_ID,
+    RETURNED,
+    MARKET,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    INGESTION_TIMESTAMP
+FROM
+    GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_RETURN;
+
+
+
+-------------------------------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Order table procedure 
+*/
+
+(select distinct concat (ORDER_ID,'-', ORDER_DATE) from global_superstore.silver_superstore.s_order);
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.S_order_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_Order table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+Insert into  global_superstore.Silver_superstore.S_ORDER (
+        ROW_ID,
+        ORDER_ID,
+        ORDER_DATE,
+        SHIP_DATE,
+        SHIP_MODE,
+        CUSTOMER_KEY,
+        COUNTRY_KEY,
+        PRODUCT_KEY,
+        SALES,
+        QUANTITY,
+        DISCOUNT,
+        PROFIT,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select 
+            distinct ROW_ID,
+            ORDER_ID,
+            ORDER_DATE,
+            SHIP_DATE,
+            SHIP_MODE,
+            ABS(HASH(customer_id, customer_name, segment)) AS customer_key,
+            ABS(HASH(city, state, region)) AS country_key,
+            ABS(HASH(product_id, product_name, sub_category)) AS product_key,
+            SALES,
+            QUANTITY,
+            DISCOUNT,
+            PROFIT,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _sf_ingestion_timestamp
+        from
+            GLOBAL_SUPERSTORE.bronze_superstore.b_order
+        where
+            row_id is not null 
+            and  concat (ORDER_ID,'-', ORDER_DATE) not in (select distinct concat (ORDER_ID,'-', ORDER_DATE) from global_superstore.silver_superstore.b_order)
+    );
+
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table S_Order of Bronze layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.S_order_procedure();
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Return table procedure 
+*/
+
+(select distinct * from global_superstore.silver_superstore.s_return);
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.s_return_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_Return table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+    
+INSERT INTO
+    GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return (
+        RETURN_KEY,
+        ORDER_ID,
+        RETURNED,
+        MARKET,
+        _FIVETRAN_SYNCED,
+        INGESTION_TIMESTAMP
+    )
+SELECT
+    DISTINCT ABS(HASH(ORDER_ID, RETURNED, MARKET)) AS RETURN_KEY,
+    ORDER_ID,
+    RETURNED,
+    MARKET,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    INGESTION_TIMESTAMP
+FROM
+    GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_RETURN
+    where RETURN_KEY not in ( SELECT
+    DISTINCT ABS(HASH(ORDER_ID, RETURNED, MARKET)) AS RETURN_KEY FROM  GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return)
+    ;
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table S_RETURN of Silver layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.s_return_procedure();
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+People table procedure 
+*/
+
+select concat(region,'-',person) from global_superstore.bronze_superstore.b_people;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.B_people_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_people table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+
+INSERT INTO
+    GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return (
+        RETURN_KEY,
+        ORDER_ID,
+        RETURNED,
+        MARKET,
+        _FIVETRAN_SYNCED,
+        INGESTION_TIMESTAMP
+    )
+SELECT
+    DISTINCT ABS(HASH(ORDER_ID, RETURNED, MARKET)) AS RETURN_KEY,
+    ORDER_ID,
+    RETURNED,
+    MARKET,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    INGESTION_TIMESTAMP
+FROM
+    GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_RETURN
+    where order_id not in (select distinct order_id from GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return)
+    ;
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table B_people of Bronze layer table';
+END;
+$$;
+
+call global_superstore.bronze_superstore.B_people_procedure();
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Customer table procedure 
+*/
+
+select * from global_superstore.silver_superstore.s_customer;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.s_customer_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_Customer table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+
+insert into   GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer 
+(
+        CUSTOMER_KEY,
+        CUSTOMER_ID,
+        CUSTOMER_NAME,
+        SEGMENT,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    )
+select distinct ABS(HASH(customer_id, customer_name, segment)) AS customer_key,
+    CUSTOMER_ID,
+    CUSTOMER_NAME,
+    SEGMENT,
+    left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+    _SF_INGESTION_TIMESTAMP
+from GLOBAL_SUPERSTORE.bronze_superstore.b_order
+    where customer_key not in 
+    ( SELECT  DISTINCT ABS(HASH(customer_id, customer_name, segment)) AS customer_key FROM  GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer)
+;
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table B_Customer of Silver layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.s_customer_procedure();
+
+
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Geo table procedure 
+*/
+
+select * from global_superstore.silver_superstore.s_Geo;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.s_Geo_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_Geo table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+Insert into   global_superstore.Silver_superstore.S_Geo 
+(
+        COUNTRY_KEY,
+        CITY,
+        STATE,
+        REGION,
+        COUNTRY,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select
+            distinct ABS(HASH(city, state, region)) AS country_key,
+            CITY,
+            STATE,
+            REGION,
+            COUNTRY,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _SF_INGESTION_TIMESTAMP
+        from
+            GLOBAL_SUPERSTORE.bronze_superstore.b_order
+            where country_key not in 
+            (select  distinct ABS(HASH(city, state, region)) AS country_key from GLOBAL_SUPERSTORE.bronze_superstore.b_order )
+    );
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table S_Geo of Silver layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.s_Geo_procedure();
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Poduct table procedure 
+*/
+
+select * from global_superstore.silver_superstore.S_PRODUCT;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.s_Product_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 's_Product table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+  insert into  GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product (
+        PRODUCT_KEY,
+        PRODUCT_ID,
+        PRODUCT_NAME,
+        CATEGORY,
+        SUB_CATEGORY,
+        _FIVETRAN_SYNCED,
+        _SF_INGESTION_TIMESTAMP
+    ) 
+    (
+        select  distinct ABS(HASH(product_id, product_name, sub_category)) AS PRODUCT_KEY,
+            PRODUCT_ID,
+            PRODUCT_NAME,
+            CATEGORY,
+            SUB_CATEGORY,
+            left(_FIVETRAN_SYNCED, 16) as _FIVETRAN_SYNCED,
+            _SF_INGESTION_TIMESTAMP
+        from GLOBAL_SUPERSTORE.bronze_superstore.b_order
+        where PRODUCT_KEY not in 
+        (select distinct ABS(HASH(product_id, product_name, sub_category)) AS PRODUCT_KEY from GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product )
+    );
+
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table s_Product of Silver layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.s_Product_procedure();
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Calender table procedure 
+*/
+
+select * from global_superstore.silver_superstore.s_calender;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.silver_superstore.S_Calender_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'S_Calender table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+   
+Insert into
+    global_superstore.Silver_superstore.S_Calender (
+        CALENDAR_DATE,
+        YEAR,
+        QUARTER,
+        MONTH,
+        WEEKNUMBER,
+        DAYNAME,
+        DAY
+    ) 
+    (
+        WITH date_range AS (
+            SELECT
+                MIN(order_date) AS min_date,
+                MAX(ship_date) + 1 AS max_date
+            FROM
+                global_superstore.bronze_superstore.b_order
+        )
+        SELECT
+            DATEADD(DAY, SEQ4(), min_date) AS calendar_date,
+            YEAR(DATEADD(DAY, SEQ4(), min_date)) AS year,
+            concat('Q', QUARTER(DATEADD(DAY, SEQ4(), min_date))) as quarter,
+            MONTHNAME(DATEADD(DAY, SEQ4(), min_date)) as month,
+            concat('W', week(DATEADD(DAY, SEQ4(), min_date))) as Weeknumber,
+            DAYNAME(DATEADD(DAY, SEQ4(), min_date)) as dayname,
+            DAY(DATEADD(DAY, SEQ4(), min_date)) as Day
+        FROM
+            date_range,
+            TABLE(GENERATOR(ROWCOUNT => 2000))
+        WHERE
+            DATEADD(DAY, SEQ4(), min_date) <= max_date
+    );
+    
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table S_Calender of Silver layer table';
+END;
+$$;
+
+call global_superstore.silver_superstore.s_Geo_procedure();
+
+
+-------------------------------------------------------------------------------------------------------
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Silver layer Order task and parents of all the task
+*/
+
+
+
+CREATE  OR REPLACE  TASK global_superstore.silver_superstore.S_Order_task
+ WAREHOUSE = 'DEDICATED_BATCH' 
+  SCHEDULE = '5 MINUTE'                   -- every n minutes 
+   COMMENT = 'S_order table parent task layer wrapper task' 
+ AS
+ call GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_ORDER_PROCEDURE();
+
+
+ alter task global_superstore.silver_superstore.S_Order_task resume;
+alter task global_superstore.silver_superstore.S_Order_task suspend;
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Silver layer calender task and parents of all the task
+*/
+
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.S_Calender_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'S_Calender table is child task of order'
+  AFTER global_superstore.silver_superstore.S_Order_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Calender_PROCEDURE();
+
+
+
+ alter task global_superstore.silver_superstore.S_Calender_task resume;
+alter task global_superstore.silver_superstore.S_Calender_task suspend;
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+Silver layer customer task and parents of all the task
+*/
+
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.S_Customer_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'Runs S_Customer_PROCEDURE after Calendar'
+  AFTER global_superstore.silver_superstore.S_Calender_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer_PROCEDURE();
+
+
+ ----------------------------------------------------------------------------------------
+
+/* 
+Silver layer calender task and parents of all the task
+*/
+ 
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.S_Geo_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'Runs S_Geo_PROCEDURE after Customer'
+  AFTER global_superstore.silver_superstore.S_Customer_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Geo_PROCEDURE();
+
+
+
+  ----------------------------------------------------------------------------------------
+
+/* 
+Silver layer calender task and parents of all the task
+*/
+
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.S_Product_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'Runs S_Product_PROCEDURE after Geo'
+  AFTER global_superstore.silver_superstore.S_Geo_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product_PROCEDURE();
+
+
+  ----------------------------------------------------------------------------------------
+
+/* 
+Silver layer calender task and parents of all the task
+*/
+
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.S_Return_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'Runs S_Return_PROCEDURE after Product'
+  AFTER global_superstore.silver_superstore.S_Product_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return_PROCEDURE();
+
+
+  ----------------------------------------------------------------------------------------
+
+/* 
+Silver layer calender task and parents of all the task
+*/
+
+
+
+CREATE OR REPLACE TASK global_superstore.silver_superstore.B_People_task
+  WAREHOUSE = 'DEDICATED_BATCH'
+  COMMENT = 'Runs B_People_PROCEDURE after Return'
+  AFTER global_superstore.silver_superstore.S_Return_task
+AS
+  CALL GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_People_PROCEDURE();
+
+--------------------------------------------------------------------------------
+
+
+-- Stream for S_ORDER
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Order_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_ORDER
+COMMENT = 'Stream on S_ORDER table';
+
+
+
+
+-- Stream for S_CALENDER
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Calender_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_CALENDER
+COMMENT = 'Stream on S_CALENDER table';
+
+
+
+
+-- Stream for S_CUSTOMER
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Customer_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_CUSTOMER
+COMMENT = 'Stream on S_CUSTOMER table';
+
+
+
+-- Stream for S_GEO
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Geo_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_GEO
+COMMENT = 'Stream on S_GEO table';
+
+
+
+-- Stream for S_PRODUCT
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Product_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_PRODUCT
+COMMENT = 'Stream on S_PRODUCT table';
+
+
+
+-- Stream for S_RETURN
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_Return_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_RETURN
+COMMENT = 'Stream on S_RETURN table';
+
+
+
+-- Stream for S_PEOPLE
+CREATE OR REPLACE STREAM GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_People_Stream
+ON TABLE GLOBAL_SUPERSTORE.SILVER_SUPERSTORE.S_PEOPLE
+COMMENT = 'Stream on S_PEOPLE table';

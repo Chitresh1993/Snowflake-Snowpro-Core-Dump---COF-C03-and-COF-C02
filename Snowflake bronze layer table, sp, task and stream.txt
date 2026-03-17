@@ -1,0 +1,440 @@
+create or replace schema global_superstore.Bronze_superstore DATA_RETENTION_TIME_IN_DAYS = 14;
+----------------------------------------------------------------------------------------------------
+/* 
+
+Order table Bronze and insert data query 
+
+*/
+CREATE OR REPLACE TABLE global_superstore.Bronze_superstore.B_order (
+    ORDER_SK NUMBER AUTOINCREMENT START = 1000 INCREMENT = 1,
+    ROW_ID STRING,
+    PRODUCT_ID STRING,
+    POSTAL_CODE STRING,
+    CATEGORY STRING,
+    DISCOUNT STRING,
+    ORDER_ID STRING NOT NULL,
+    PRODUCT_NAME STRING,
+    SHIP_DATE DATE,
+    QUANTITY NUMBER,
+    CITY STRING,
+    SUB_CATEGORY STRING,
+    SHIPPING_COST NUMBER,
+    SEGMENT STRING,
+    SALES NUMBER,
+    CUSTOMER_ID STRING,
+    STATE STRING,
+    ORDER_PRIORITY STRING,
+    SHIP_MODE STRING,
+    COUNTRY STRING,
+    REGION STRING,
+    ORDER_DATE DATE,
+    PROFIT NUMBER,
+    CUSTOMER_NAME STRING,
+    _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+    _SF_INGESTION_TIMESTAMP TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP
+) CLUSTER BY (ORDER_DATE) 
+DATA_RETENTION_TIME_IN_DAYS = 14 
+COMMENT = 'Order Fact Table populated from Staging Layer with surrogate key and update timestamp';
+/* 
+
+ insert data query 
+
+*/
+insert into    global_superstore.Bronze_superstore.B_order (
+        _FIVETRAN_SYNCED,
+        ROW_ID,
+        PRODUCT_ID,
+        POSTAL_CODE,
+        CATEGORY,
+        DISCOUNT,
+        ORDER_ID,
+        PRODUCT_NAME,
+        SHIP_DATE,
+        QUANTITY,
+        CITY,
+        SUB_CATEGORY,
+        SHIPPING_COST,
+        SEGMENT,
+        SALES,
+        CUSTOMER_ID,
+        STATE,
+        ORDER_PRIORITY,
+        SHIP_MODE,
+        COUNTRY,
+        REGION,
+        ORDER_DATE,
+        PROFIT,
+        CUSTOMER_NAME
+    ) 
+        (
+        select
+            distinct _FIVETRAN_SYNCED,
+            ROW_ID,
+            PRODUCT_ID,
+            POSTAL_CODE,
+            CATEGORY,
+            DISCOUNT,
+            ORDER_ID,
+            PRODUCT_NAME,
+            SHIP_DATE,
+            QUANTITY,
+            CITY,
+            SUB_CATEGORY,
+            SHIPPING_COST,
+            SEGMENT,
+            SALES,
+            CUSTOMER_ID,
+            STATE,
+            ORDER_PRIORITY,
+            SHIP_MODE,
+            COUNTRY,
+            REGION,
+            ORDER_DATE,
+            PROFIT,
+            CUSTOMER_NAME
+        from    global_superstore.google_sheet.orders_range
+    );
+select    * from    global_superstore.Bronze_superstore.B_order;
+---------------------------------------------------------------------------------------
+    
+--    Return table Bronze and insert data query 
+    
+
+
+    
+    CREATE  OR REPLACE TABLE global_superstore.Bronze_superstore.B_Return (
+        Return_SK NUMBER AUTOINCREMENT START = 1000 INCREMENT = 1,
+        ORDER_ID STRING NOT NULL,
+        RETURNED STRING,
+        MARKET STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        INGESTION_TIMESTAMP TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP
+    )
+    --CLUSTER BY (ORDER_DATE)
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'Return dim Table populated from Staging Layer with surrogate key and update timestamp';
+
+
+
+    
+ --    insert data query 
+    
+
+
+
+insert into  global_superstore.Bronze_superstore.B_RETURN (_FIVETRAN_SYNCED, RETURNED, ORDER_ID, MARKET) 
+(
+        select
+            distinct _FIVETRAN_SYNCED,
+            RETURNED,
+            ORDER_ID,
+            MARKET
+        from
+            global_superstore.google_sheet.return_range
+    );
+    
+select    * from  global_superstore.Bronze_superstore.B_RETURN;
+---------------------------------------------------------------------------------------
+
+/* 
+    
+ people table Bronze and insert data query 
+    
+ */
+
+
+ 
+    CREATE OR REPLACE TABLE global_superstore.Bronze_superstore.B_People (
+        People_SK NUMBER AUTOINCREMENT START = 1000 INCREMENT = 1,
+        REGION STRING NOT NULL,
+        PERSON STRING,
+        _FIVETRAN_SYNCED TIMESTAMP_TZ(9),
+        INGESTION_TIMESTAMP TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP
+    )
+    --CLUSTER BY (ORDER_DATE)
+    DATA_RETENTION_TIME_IN_DAYS = 14 
+    COMMENT = 'People dim Table populated from Staging Layer with surrogate key and update timestamp';
+
+    
+/* 
+    
+insert data query 
+    
+*/
+
+
+insert into
+    global_superstore.Bronze_superstore.B_People (_FIVETRAN_SYNCED, REGION, PERSON) (
+        select
+            distinct _FIVETRAN_SYNCED,
+            REGION,
+            PERSON
+        from
+            global_superstore.google_sheet.people_range
+    );
+
+    
+select * from global_superstore.Bronze_superstore.B_people;
+--------------------------------------------------------------------------
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Order table procedure 
+*/
+
+select * from global_superstore.bronze_superstore.b_order;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.bronze_superstore.B_order_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'B_Order table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+
+insert into    global_superstore.Bronze_superstore.B_order 
+(
+        _FIVETRAN_SYNCED,   ROW_ID,             PRODUCT_ID,
+        POSTAL_CODE,        CATEGORY,           DISCOUNT,
+        ORDER_ID,           PRODUCT_NAME,       SHIP_DATE,
+        QUANTITY,           CITY,               SUB_CATEGORY,
+        SHIPPING_COST,      SEGMENT,            SALES,
+        CUSTOMER_ID,        STATE,              ORDER_PRIORITY,
+        SHIP_MODE,          COUNTRY,            REGION,
+        ORDER_DATE,         PROFIT,             CUSTOMER_NAME
+    ) 
+        (
+        select
+            distinct _FIVETRAN_SYNCED,
+            ROW_ID,
+            PRODUCT_ID,
+            POSTAL_CODE,
+            CATEGORY,
+            DISCOUNT,
+            ORDER_ID,
+            PRODUCT_NAME,
+            SHIP_DATE,
+            QUANTITY,
+            CITY,
+            SUB_CATEGORY,
+            SHIPPING_COST,
+            SEGMENT,
+            SALES,
+            CUSTOMER_ID,
+            STATE,
+            ORDER_PRIORITY,
+            SHIP_MODE,
+            COUNTRY,
+            REGION,
+            ORDER_DATE,
+            PROFIT,
+            CUSTOMER_NAME
+        from    global_superstore.google_sheet.orders_range
+        where  ORDER_ID not in (select distinct ORDER_ID from global_superstore.google_sheet.orders_range)
+    );
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table B_Order of Bronze layer table';
+END;
+$$;
+
+call global_superstore.bronze_superstore.B_order_procedure();
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Return table procedure 
+*/
+
+select * from global_superstore.bronze_superstore.b_return;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.bronze_superstore.B_return_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'b_Return table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+insert into  global_superstore.Bronze_superstore.B_RETURN (_FIVETRAN_SYNCED, RETURNED, ORDER_ID, MARKET) 
+(
+        select
+            distinct _FIVETRAN_SYNCED,
+            RETURNED,
+            ORDER_ID,
+            MARKET
+        from
+            global_superstore.google_sheet.return_range
+        where ORDER_ID not in (select distinct ORDER_ID from global_superstore.bronze_superstore.b_return)
+    );
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table B_RETURN of Bronze layer table';
+END;
+$$;
+
+call global_superstore.bronze_superstore.B_return_procedure();
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+People table procedure 
+*/
+
+select concat(region,'-',person) from global_superstore.bronze_superstore.b_people;
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.bronze_superstore.B_people_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'B_people table Procedure '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+/* 
+ insert data query 
+*/
+
+    insert into global_superstore.Bronze_superstore.B_People (_FIVETRAN_SYNCED, REGION, PERSON) 
+    (
+        select
+            distinct _FIVETRAN_SYNCED,
+            REGION,
+            PERSON
+        from
+            global_superstore.google_sheet.people_range
+        where concat(region,'-',person) not in (select concat(region,'-',person) from global_superstore.bronze_superstore.b_people)
+    );
+
+
+  -- return message the record with date parameter 
+  
+  RETURN 'Insert and update the table B_people of Bronze layer table';
+END;
+$$;
+
+call global_superstore.bronze_superstore.B_people_procedure();
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+wrapper procedure 
+*/
+
+
+
+
+CREATE OR REPLACE PROCEDURE global_superstore.bronze_superstore.B_wrapper_procedure()
+RETURNS VARCHAR
+LANGUAGE SQL
+comment = 'B_Wrapper_procedure to wrap process of B_order, B_People, B_Return '
+EXECUTE AS OWNER
+
+AS
+$$
+BEGIN
+
+call global_superstore.bronze_superstore.B_order_procedure();
+
+call global_superstore.bronze_superstore.B_return_procedure();
+
+call global_superstore.bronze_superstore.B_people_procedure();
+
+  RETURN 'B_Wrapper_procedure to wrap process of B_order, B_People, B_Return ';
+END;
+$$;
+
+call global_superstore.bronze_superstore.B_wrapper_procedure();
+
+
+
+
+ ----------------------------------------------------------------------------------------------------------
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Bronze layer task
+*/
+
+
+CREATE  OR REPLACE  TASK global_superstore.bronze_superstore.B_wrapper_task
+ WAREHOUSE = 'DEDICATED_BATCH' 
+  SCHEDULE = '5 MINUTE'                   -- every n minutes 
+   COMMENT = 'Bronze layer wrapper task' 
+ AS
+ call global_superstore.bronze_superstore.B_wrapper_procedure();
+
+alter task global_superstore.bronze_superstore.B_wrapper_task resume;
+alter task global_superstore.bronze_superstore.B_wrapper_task suspend;
+ 
+
+
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Bronze layer order stream
+*/
+
+
+CREATE  OR REPLACE  STREAM GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_Order_Stream
+ON TABLE  GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_Order
+COMMENT = 'Stream on B_Order table' ;
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Bronze layer people stream
+*/
+
+CREATE  OR REPLACE  STREAM GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_People_Stream
+ON TABLE  GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_PEOPLE
+COMMENT = 'Stream on B_People table' ;
+
+
+----------------------------------------------------------------------------------------
+
+/* 
+ Bronze layer return stream
+*/
+
+CREATE  OR REPLACE  STREAM GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_Return_Stream
+ON TABLE  GLOBAL_SUPERSTORE.BRONZE_SUPERSTORE.B_Return
+COMMENT = 'Stream on B_Return table' ;
+
