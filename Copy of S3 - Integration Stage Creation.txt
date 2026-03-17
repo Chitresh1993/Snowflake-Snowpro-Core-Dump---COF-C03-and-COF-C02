@@ -1,0 +1,128 @@
+1. Created IAM Account
+2. Created a s3 Bucket
+3. Created a subfolder in S3 bucket
+4. uploaded a file into s3 subfolder
+5. Create a Policy to grant access / privileges to our created S3 Bucket
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::<bucket>/<prefix>/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::<bucket>",
+            "Condition": {
+                "StringLike": {
+                    "s3:prefix": [
+                        "<prefix>/*"
+                    ]
+                }
+            }
+        }
+    ]
+}
+
+6. Create a Role for "Another AWS Account" and assign the created policy to Role
+7. While creation -- Give your account id ( dummy purpose for account id validation ) and dummy external id
+8. Create the Role
+
+8A. Create a Bucket Policy
+Update the Bucket Policy with Snowflake VPC End Point Details
+Bucket Policy
+---------------
+{
+    "Version": "2012-10-17",
+    "Id": "Policy1415115909153",
+    "Statement": [
+        {
+            "Sid": "Access-to-specific-VPC-only",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:*",
+            "Resource": [
+                "arn:aws:s3:::sfdbbucket1",
+                "arn:aws:s3:::sfdbbucket1/*"
+            ],
+            "Condition": {
+                "StringEquals": {
+                    "aws:sourceVpc": "com.amazonaws.vpce.ap-southeast-1.vpce-svc-07d29a86078ceefe8"
+                }
+            }
+        }
+    ]
+}
+
+8A) Use role AccountAdmin;
+
+9 Create Snowflake integration
+
+CREATE or replace STORAGE INTEGRATION s3_snowflake_int
+  TYPE = EXTERNAL_STAGE	
+  STORAGE_PROVIDER = S3
+  ENABLED = TRUE
+  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::669109325265:role/sftraining5'
+  STORAGE_ALLOWED_LOCATIONS = ('s3://sftraining5/');
+
+
+10. Desc Snowflake Integration 
++---------------------------+---------------+--------------------------------------------------------------+------------------+
+| property                  | property_type | property_value                                               | property_default |
+|---------------------------+---------------+--------------------------------------------------------------+------------------|
+| ENABLED                   | Boolean       | true                                                         | false            |
+| STORAGE_ALLOWED_LOCATIONS | List          | s3://sfdbbucket1/                                            | []               |
+| STORAGE_BLOCKED_LOCATIONS | List          |                                                              | []               |
+| STORAGE_AWS_IAM_USER_ARN  | String        | arn:aws:iam::418734513476:user/wkyw-s-sgss0655               |                  |
+| STORAGE_AWS_ROLE_ARN      | String        | AWS Role ARN : arn:aws:iam::662291337917:role/snowflakeRole  |                  |
+| STORAGE_AWS_EXTERNAL_ID   | String        | BK10224_SFCRole=2_ISdDDVWZFOMGIaD91+tlVB4bHhU=               |                  |
++---------------------------+---------------+--------------------------------------------------------------+------------------+
+11. Copy the STORAGE_AWS_IAM_USER_ARN value and STORAGE_AWS_EXTERNAL_ID value for AWS Role Policy updation
+12. Go to the role that you have created and click on Trust Relationships and click on Edit Trust Relationships
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::418734513476:user/wkyw-s-sgss0655"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "BK10224_SFCRole=2_DLRRDpakViT5nq9uxzyEMSxgpmc="
+        }
+      }
+    }
+  ]
+}
+13. Update the json with STORAGE_AWS_IAM_USER_ARN value and STORAGE_AWS_EXTERNAL_ID value
+14. update Trust Policy
+
+15. Create an external Stage pointing to your S3 Bucket
+create stage my_s3_stage
+  storage_integration = s3_snowflake_int
+  url = 's3://sfdbbucket1/';
+
+16. list Your External Stage
+    list @my_s3_stage;
+shmodem#COMPUTE_WH@SNOWFLAKETRAININGDB.PUBLIC>list @my_s3_stage;
++-----------------------------------------------+--------+----------------------------------+------------------------------+
+| name                                          |   size | md5                              | last_modified                |
+|-----------------------------------------------+--------+----------------------------------+------------------------------|
+| s3://sfdbbucket1/sfdbLabMaterial/customer.csv | 242510 | 081c5d37c41b6c6777b354df6591528e | Fri, 2 Aug 2019 15:03:46 GMT |
++-----------------------------------------------+--------+----------------------------------+------------------------------+
+17. Load data into your table from External stage -- copy into <table> from @my-s3_stage
+	
+
+
+

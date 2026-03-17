@@ -1,0 +1,31 @@
+use role accountadmin;
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE SYSADMIN;
+
+use role sysadmin;
+Create or replace task sync_nation_table_task 
+warehouse = compute_wh
+  schedule = '1 minute'
+when (system$stream_has_data('nation_stream'))  
+as
+MERGE INTO NATION  NSS
+USING nation_stream NTC 
+ON (NSS.N_NATIONKEY = NTC.N_NATIONKEY) 
+WHEN MATCHED AND (NTC.METADATA$ACTION='INSERT' AND NTC.METADATA$ISUPDATE='TRUE') THEN
+UPDATE SET NSS.n_nationkey = NTC.N_NATIONKEY,NSS.n_name = NTC.n_name,NSS.n_regionkey = NTC.n_regionkey,NSS.n_comment = NTC.n_comment,
+NSS.country_code = NTC.country_code,NSS.update_timestamp =NTC.update_timestamp
+WHEN MATCHED AND (NTC.METADATA$ACTION='DELETE' AND NTC.METADATA$ISUPDATE='FALSE') THEN
+UPDATE SET NSS.IS_DELETED = 'Y'
+WHEN NOT MATCHED THEN
+INSERT(n_nationkey,n_name,n_regionkey,n_comment,country_code,update_timestamp) 
+VALUES (NTC.n_nationkey,NTC.n_name,NTC.n_regionkey,NTC.n_comment,NTC.country_code,NTC.update_timestamp);
+
+ALTER TASK sync_nation_table_task RESUME;
+
+ALTER TASK sync_nation_table_task SUSPEND;
+
+select *
+  from table(information_schema.task_history(
+    scheduled_time_range_start=>dateadd('hour',-1,current_timestamp()),
+    result_limit => 10,
+    task_name=>'sync_nation_table_task'));
+

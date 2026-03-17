@@ -1,0 +1,173 @@
+1. An AWS IAM user created for your Snowflake account is associated with an IAM role you configure via a trust relationship.
+2. The role is granted limited access to an S3 bucket through IAM policies you configure
+
+
+Step 1: Create a S3 Bucket and Configure S3 Bucket Access Permissions
+-------------------------------------------------
+Create a S3 Bucket --> it should be unique accross AWS Accounts in the world (all small letters)
+AWS Access Control Requirements
+Snowflake requires the following permissions on an S3 bucket and folder to be able to access files in the folder (and any sub-folders):
+s3:GetObject  -- get the file
+s3:GetObjectVersion  - get the file version
+s3:ListBucket  - View the bucket Details
+s3:PutObject        -- upload a file
+s3:DeleteObject -- Delete a file`
+s3:DeleteObjectVersion  -- Delete a file version
+
+Creating an IAM Policy
+--------------------------------
+The following step-by-step instructions describe how to configure access permissions for Snowflake in your AWS Management Console so that you can use an S3 bucket to load and unload data:
+1.Log into the AWS Management Console.
+2.From the home dashboard, choose Identity & Access Management (IAM):
+3.Choose Account settings from the left-hand navigation pane.
+4.Expand the Security Token Service Regions list, find the AWS region corresponding to the region where your account is located, and choose Activate if the status is Inactive.
+5.Choose Policies from the left-hand navigation pane.
+6.Click Create Policy:
+7.Click the JSON tab.
+Add a policy document that will allow Snowflake to access the S3 bucket and folder.
+Copy the Below JSON Script and Paste it in IAM Policy JSON Window / Tab (Dont copy the Line -------)
+------------------------------------------------------------------------
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::sftraining/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::sftraining",
+            "Condition": {
+                "StringLike": {
+                    "s3:prefix": [
+                        "*"
+                    ]
+                }
+            }
+        }
+    ]
+}
+--------------------------------------------------
+9.Click Review policy.
+10. Enter the policy name (e.g. snowflake_access) and an optional description. 
+Then, click Create policy to create the policy.
+
+Creating an IAM Role -- Configure the AWS IAM Role to Allow Access to the Stage
+-------------------------------------------------------------------------------------
+1.Log into the AWS Management Console.
+2.From the home dashboard, choose Identity & Access Management (IAM)
+3.Choose Roles from the left-hand navigation pane
+4.Click on Create Role Button
+5.Select Another AWS account as the trusted entity type.
+6.In the Account ID field, enter your own AWS account ID. Later, you will modify the 
+  trusted relationship and grant access to Snowflake. 
+  An external ID is required to grant access to your AWS resources (i.e. S3) to a 
+  third party (i.e. Snowflake in this case) later in these instructions.
+7.Select the Require external ID option. Enter a dummy ID such as 0000. Later, you will modify the trusted relationship and specify the external ID for your Snowflake stage.
+8.Click the Next button.
+9.Locate the policy you created above and select this policy.
+10.Click the Next button.
+11.Enter a name and description for the role, and click the Create role button.
+12.You have now created an IAM policy for a bucket, created an IAM role, and attached the policy to the role.
+13.Save the Role ARN value located on the role summary page. In the next step, you will create a Snowflake stage that references this role as the security credentials.
+
+
+Create An External Stage
+----------------------------
+Create an external (i.e S3) stage that references the AWS role you created.
+1.Create an external stage using the CREATE STAGE command, or you can choose to alter an existing external stage and set the CREDENTIALS option.
+2.Use database my_db;
+3.use schema public;
+4.create stage my_s3_stage
+  url='s3://mybucket'
+  credentials = (aws_role = 'arn:aws:iam::001234567890:role/mysnowflakerole')
+  encryption=(type='AWS_SSE_KMS' kms_key_id = 'aws/key');
+  Here aws_role is nothing but the role ARN that you have created and saved in the above IAM Role Creation
+5.desc stage my_s3_stage;
++--------------------+--------------------------------+---------------+------------------------------------------------+------------------+
+| parent_property    | property                       | property_type | property_value                                 | property_default |
+|--------------------+--------------------------------+---------------+------------------------------------------------+------------------|
+| STAGE_FILE_FORMAT  | TYPE                           | String        | CSV                                            | CSV              |
+| STAGE_FILE_FORMAT  | RECORD_DELIMITER               | String        | \n                                             | \n               |
+| STAGE_FILE_FORMAT  | FIELD_DELIMITER                | String        | ,                                              | ,                |
+| STAGE_FILE_FORMAT  | FILE_EXTENSION                 | String        |                                                |                  |
+| STAGE_FILE_FORMAT  | SKIP_HEADER                    | Integer       | 0                                              | 0                |
+| STAGE_FILE_FORMAT  | DATE_FORMAT                    | String        | AUTO                                           | AUTO             |
+| STAGE_FILE_FORMAT  | TIME_FORMAT                    | String        | AUTO                                           | AUTO             |
+| STAGE_FILE_FORMAT  | TIMESTAMP_FORMAT               | String        | AUTO                                           | AUTO             |
+| STAGE_FILE_FORMAT  | BINARY_FORMAT                  | String        | HEX                                            | HEX              |
+| STAGE_FILE_FORMAT  | ESCAPE                         | String        | NONE                                           | NONE             |
+| STAGE_FILE_FORMAT  | ESCAPE_UNENCLOSED_FIELD        | String        | \\                                             | \\               |
+| STAGE_FILE_FORMAT  | TRIM_SPACE                     | Boolean       | false                                          | false            |
+| STAGE_FILE_FORMAT  | FIELD_OPTIONALLY_ENCLOSED_BY   | String        | NONE                                           | NONE             |
+| STAGE_FILE_FORMAT  | NULL_IF                        | List          | [\\N]                                          | [\\N]            |
+| STAGE_FILE_FORMAT  | COMPRESSION                    | String        | AUTO                                           | AUTO             |
+| STAGE_FILE_FORMAT  | ERROR_ON_COLUMN_COUNT_MISMATCH | Boolean       | true                                           | true             |
+| STAGE_FILE_FORMAT  | VALIDATE_UTF8                  | Boolean       | true                                           | true             |
+| STAGE_FILE_FORMAT  | SKIP_BLANK_LINES               | Boolean       | false                                          | false            |
+| STAGE_FILE_FORMAT  | REPLACE_INVALID_CHARACTERS     | Boolean       | false                                          | false            |
+| STAGE_FILE_FORMAT  | EMPTY_FIELD_AS_NULL            | Boolean       | true                                           | true             |
+| STAGE_FILE_FORMAT  | SKIP_BYTE_ORDER_MARK           | Boolean       | true                                           | true             |
+| STAGE_FILE_FORMAT  | ENCODING                       | String        | UTF8                                           | UTF8             |
+| STAGE_COPY_OPTIONS | ON_ERROR                       | String        | ABORT_STATEMENT                                | ABORT_STATEMENT  |
+| STAGE_COPY_OPTIONS | SIZE_LIMIT                     | Long          |                                                |                  |
+| STAGE_COPY_OPTIONS | PURGE                          | Boolean       | false                                          | false            |
+| STAGE_COPY_OPTIONS | RETURN_FAILED_ONLY             | Boolean       | false                                          | false            |
+| STAGE_COPY_OPTIONS | ENFORCE_LENGTH                 | Boolean       | true                                           | true             |
+| STAGE_COPY_OPTIONS | TRUNCATECOLUMNS                | Boolean       | false                                          | false            |
+| STAGE_COPY_OPTIONS | FORCE                          | Boolean       | false                                          | false            |
+| STAGE_LOCATION     | URL                            | String        | ["s3://dvssfbucket/"]                          |                  |
+| STAGE_CREDENTIALS  | AWS_ROLE                       | String        | arn:aws:iam::669109325265:role/dvs_sf_role     |                  |
+| STAGE_CREDENTIALS  | AWS_EXTERNAL_ID                | String        | UY86195_SFCRole=4_5G9rdzVkX7XgSeyUUrl4U9RGTg4= |                  | <-------   Copy This
+| STAGE_CREDENTIALS  | SNOWFLAKE_IAM_USER             | String        | arn:aws:iam::418734513476:user/80yl-s-sgss0979 |                  | <-------   Copy This
++--------------------+--------------------------------+---------------+------------------------------------------------+------------------+  
+
+6.Save the values for the SNOWFLAKE_IAM_USER and AWS_EXTERNAL_ID properties, where:
+  SNOWFLAKE_IAM_USER
+  An AWS IAM user created for your Snowflake account. This user is the same for every external S3 stage created in your account.
+
+  AWS_EXTERNAL_ID
+  A unique ID assigned to the specific stage. The ID has the following format: <snowflakeAccount_SFCRole=snowflakeRoleId_randomId>
+
+
+Configure the AWS IAM Role to Allow Access to the Stage (my_s3_stage)
+---------------------------------------------------------------------
+In the AWS Management Console, configure the IAM role using the stage properties you created above
+1.Log into the AWS Management Console.
+2.From the home dashboard, choose Identity & Access Management (IAM)
+3.Choose Roles from the left-hand navigation pane, and click on the role you created
+4.Click the Trust relationships tab, and click the Edit trust relationship button.
+5.In the Policy Document field, update the policy with the property values for the stage:
+6.AWS: Enter the ARN for the SNOWFLAKE_IAM_USER stage property, i.e. arn:aws:iam::418734513476:user/80yl-s-sgss0979 ( From the  <------- Copy This)
+7.sts:ExternalId: Enter the generated external ID, i.e.  UY86195_SFCRole=4_5G9rdzVkX7XgSeyUUrl4U9RGTg4= ( From the  <------- Copy This)
+{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+          "Effect": "Allow",
+          "Principal": {
+              "AWS": [
+                  "arn:aws:iam::418734513476:user/80yl-s-sgss0979"
+              ]
+          },
+          "Action": "sts:AssumeRole",
+          "Condition": {
+              "StringEquals": {
+                  "sts:ExternalId": "UY86195_SFCRole=4_5G9rdzVkX7XgSeyUUrl4U9RGTg4="
+              }
+          }
+      }
+    ]
+}
+8.Click the Update Trust Policy button.
+
+You have now completed the one-time setup to access your S3 bucket using an AWS role.
+Now You can List the External Stage and View the S3 Bucket Files that you have access to

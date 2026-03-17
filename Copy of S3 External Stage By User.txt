@@ -1,0 +1,80 @@
+1. An AWS IAM user created for your Snowflake account is associated with an IAM role you configure via a trust relationship.
+2. The role is granted limited access to an S3 bucket through IAM policies you configure
+
+
+Step 1: Create a S3 Bucket and Configure S3 Bucket Access Permissions
+-------------------------------------------------
+Create a S3 Bucket --> it should be unique accross AWS Accounts in the world (all small letters)
+AWS Access Control Requirements
+Snowflake requires the following permissions on an S3 bucket and folder to be able to access files in the folder (and any sub-folders):
+s3:GetObject  -- get the file
+s3:GetObjectVersion  - get the file version
+s3:ListBucket  - View the bucket Details
+s3:PutObject        -- upload a file
+s3:DeleteObject -- Delete a file`
+s3:DeleteObjectVersion  -- Delete a file version
+
+Creating an IAM Policy
+--------------------------------
+The following step-by-step instructions describe how to configure access permissions for Snowflake in your AWS Management Console so that you can use an S3 bucket to load and unload data:
+1.Log into the AWS Management Console.
+2.From the home dashboard, choose Identity & Access Management (IAM):
+3.Choose Account settings from the left-hand navigation pane.
+4.Expand the Security Token Service Regions list, find the AWS region corresponding to the region where your account is located, and choose Activate if the status is Inactive.
+5.Choose Policies from the left-hand navigation pane.
+6.Click Create Policy:
+7.Click the JSON tab.
+Add a policy document that will allow Snowflake to access the S3 bucket and folder.
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+              "s3:PutObject",
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::sftraining/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::sftraining",
+            "Condition": {
+                "StringLike": {
+                    "s3:prefix": [
+                        "<prefix>/*"
+                    ]
+                }
+            }
+        }
+    ]
+}
+9.Click Review policy.
+10. Enter the policy name (e.g. snowflake_access) and an optional description. Then, click Create policy to create the policy.
+
+Create an AWS IAM User
+-----------------------
+1.Choose Users from the left-hand navigation pane, then click Add user.
+2.On the Add user page, enter a new user name (e.g. sf_s3_user). 
+    Select Programmatic access as the access type, then click Next
+3.Click Attach existing policies directly, and select the policy you created earlier. Then click Next
+4.Review the user details, then click Create user.
+5.Save the access credentials. The easiest way to record them is to 
+    click Download Credentials to write them to a file (e.g. credentials.csv)
+6. You can copy the Access Key ID and Secret Access Key (By Clicking on Show)
+7.*************Once you leave this page, the Secret Access Key will no longer 
+           be available anywhere in the AWS console. ************************
+  *************If you lose the key, you must generate a new set of credentials for the 
+                         user.***************************
+8.Create An External Stage my_s3_stage_by_user
+9. use db my_db;
+10. use schema my_schema
+11. create or replace stage my_s3_stage
+  url='s3://dvssfbucket/'
+  credentials=(aws_key_id='1a2b3c' aws_secret_key='4x5y6z')
+  encryption=(type='AWS_SSE_KMS' kms_key_id = 'aws/key');  
+12. List the External Stage and view the files from S3 Buckets

@@ -1,0 +1,30 @@
+Option	Option Description
+-a, –accountname TEXT	Name assigned to your Snowflake account.
+-u, –username TEXT	Username to connect to Snowflake.
+-d, –dbname TEXT	Snowflake database.
+-s, –schemaname TEXT	Schema in the database to use.
+-r, –rolename TEXT	Role name to use if any.
+-w, –warehouse TEXT	Warehouse to use if you created specific warehouse.
+-h, –host TEXT	Host address for the connection.
+-p, –port INTEGER	Port number for the Snowflake connection.
+-m, –mfa-passcode TEXT	Token to use for multi-factor authentication (MFA).
+–mfa-passcode-in-password	Appends the MFA passcode to the end of the password.
+–abort-detached-query	Aborts a query execution if the connection between the client and server is lost
+–probe-connection	Test connectivity to Snowflake.
+–authenticator TEXT	Authenticator: ‘snowflake’, ‘externalbrowser’
+-v, –version	Provides Snowsql current version.
+–noup	Disables auto-upgrade for current run.
+-D, –variable TEXT	Sets a variable to be referred by &<var>. Used in variable substitution.
+-o, –option TEXT	Set SnowSQL options.
+-f, –filename PATH	Execute queries from file.
+-q, –query TEXT	Execute query.
+–config PATH	SnowSQL config file path.
+-P, –prompt	Forces a password prompt. By default, $SNOWSQL_PWD is used
+-M, –mfa-prompt	Forces a prompt for the second token for MFA.
+-c, –connection TEXT	Connection parameters to be used.
+–single-transaction	Auto commit will be disabled.
+–private-key-path PATH	Path to private key file in PEM format used for key pair authentication.
+-U, –upgrade	Upgrade SnowSQL to latest version.
+-K, –client-session-keep-alive	Keeps client session alive indefinitely.
+–disable-request-pooling	Disable request pooling. This can help speed up connection failover
+-?, –help	Show the SnowSQL options and exit

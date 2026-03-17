@@ -1,0 +1,153 @@
+1. Create a Database - sfdb
+2. Create a Schema - sf_schema
+3. Create Table Emp
+	create table emp(  
+	empno    number,  
+	ename    varchar(100),  
+	job      varchar(25),  
+	mgr      number,  
+	hiredate varchar(100),  
+	sal      number,  
+	comm     number,  
+	deptno   number  
+	);
+
+4. To Get the Script of Created Object
+   select get_ddl(<object type>, '<Object Name>' );
+   Select get_ddl('table','emp');
+   
+5. Create a file Format
+	Create or replace file format my_csv_format type=csv skip_header=1;
+6. Create Stage 
+   Create Stage my_stage ;
+   
+Local File Loading into Snowflake Table EMP -- Using emp.csv file
+--------------------------------------------------------------
+   
+7. Put Files into Stages -- Only From SnowSQL
+    Internal Named Stage
+	-------------
+   put file://<local windows path>\emp.csv 	@my_stage
+   if you want to create a folder in the stage
+   put file://<local windows path>\emp.csv 	@my_stage/dataload/
+
+    User Stage
+	-------------
+   put file://<local windows path>\emp.csv 	@~
+   if you want to create a folder in the stage
+   put file://<local windows path>\emp.csv 	@~/dataload/
+
+    Table Stage
+	-------------
+   put file://<local windows path>\emp.csv 	@%emp
+   if you want to create a folder in the stage
+   put file://<local windows path>\emp.csv 	@%emp/dataload/
+
+8. Query From Stage
+    Internal Named Stage
+	-------------
+    Select $1,$2,$3 from @my_stage/emp.csv.gz limit 5;
+	Select $1,$2,$3 from @my_stage/emp.csv.gz (file_format => 'my_csv_format') limit 5;
+	User Stage
+	-------------
+	Select $1,$2,$3 from @~/emp.csv.gz limit 5;
+
+    Table Stage
+	-------------
+	Select $1,$2,$3 from @~/emp.csv.gz limit 5;	
+	
+9. Load File into Table if there are no Errors
+    copy into emp from @my_stage/emp.csv.gz file_format = my_csv_format;
+	copy into emp from @~/emp.csv.gz
+	copy into emp from @%emp/emp.csv.gz
+	
+   Copy from Stage
+   -----------------    
+     copy into emp from (Select $1,$2,$3,$4,$5,$6,$7,$8 from @my_stage/emp.csv.gz) 
+	 file_format => 'my_csv_format';	 
+	 
+10. Validate Data in the File -- No loading -- No Data loding into the table
+  copy command with validation_mode -- Return_n_rows, return_errors, return_all_errors;
+
+  copy into emp from @my_stage/emp.csv.gz file_format = my_csv_format validation_mode=return_2_rows;
+  copy into emp from @~/emp.csv.gz file_format = my_csv_format validation_mode=return_errors;
+  copy into emp from @%emp/emp.csv.gz file_format = my_csv_format validation_mode=return_all_error;
+
+11. How do we store the erroneous data into a Table with Validation_mode
+    --Using Result Scan Table Function we can log the errors
+	-- After Executing the Copy Command get the last Query ID and pass it to Result Scan Function
+    set quid=last_query_id();
+	Select $quid from dual;
+	Select $quid;
+	Select * from table(result_scan($quid));
+	--Create a Table out of Errored Rows
+	Create table emp_err_log as select * from table(result_scan($quid));
+	
+12. Load Data in to the File even if there are errors in data 
+    --  Data loding into the table using on_error = Continue
+    --copy into table with on_error=continue. If there are errors data gets loaded partially
+	 Copy into emp from @my_stage/emp.csv.gz file_format = my_csv_format on_error=continue;
+    
+	How do we store the erroneous data into table err_log
+    --Using validate Function we can log the errors
+     create or replace table emp_err_log as 
+     select * from table(validate(<table_name>, job_id=><query_id_of_the_copy_command>));
+	 
+     create or replace table emp_err_log as 
+     select * from table(validate(emp, job_id=>'_last'));
+
+
+Local File Loading into Snowflake Table EMP -- Using emp1.csv file
+--------------------------------------------------------------
+1. Create Table with Hiredata as Date Data Type
+    Create Table Emp
+	create table emp(  
+	empno    number,  
+	ename    varchar(100),  
+	job      varchar(25),  
+	mgr      number,  
+	hiredate date,  
+	sal      number,  
+	comm     number,  
+	deptno   number  
+	);
+
+
+2. put file://<windows Path>/emp1.csv @my_stage;
+
+ ***************************************
+  Repeat the above steps from Point 6 to 12
+
+
+
+Problem Stmt
+-------------
+Load a Local File into any stage
+Load into a table
+Errors -- Log the error records into a table
+Once the load is successfull -- archive the file into another directory 
+ and remove from stage
+
+
+Data Loading Folder -- c:\dataLoad\emp.csv
+Archivng Folder -- c:\dataLoads\archive
+
+1. Show stages --> my_stage
+2. list @my_stage;
+3. Show file formats -- Create a file format.. 
+    dESC FILE FORMAT MY_CSV_FORMAT;
+	SELECT GET_DDL('FILE_FORMAT','MY_CSV_FORMAT');
+3. put file://c:\dataLoad\emp.csv  @my_stage;
+4. copy into <table> from @my_stage/emp.csv.gz FILE_FORMAT=MY_CSV_FORMAT;
+5. get @my_stage/emp.csv file://c:\dataLoads\archive;
+
+
+Data Unloading
+---------------
+1. Unload data from EMP table to stage
+copy into @my_stage from EMP header=true;
+
+1. Copying into stage from table
+2. Copying into stage from table with a different folder and file name --@my_stage/export/emp
+3. Copying into stage with Select statement
+
